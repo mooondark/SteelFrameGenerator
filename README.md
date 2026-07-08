@@ -25,3 +25,5 @@ Générateur de portiques simples avec l'API d'Advance Design
 **Attention, ce visualiseur nécessite l'utilisation de l'[API](https://github.com/Graitec-Group/advance-design-api) d'Advance Design**
 
 **Une licence est également nécessaire afin de l'utiliser, et le logiciel AD2027 ou supérieur doit être installé**
+
+Voir également [Advance Design Viewer](https://github.com/mooondark/ADViewer)
