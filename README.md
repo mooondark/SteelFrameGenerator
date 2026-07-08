@@ -22,7 +22,7 @@ Générateur de portiques simples avec l'API d'Advance Design
 
 [![GitHub release](https://img.shields.io/github/v/release/mooondark/SteelFrameGenerator)](https://github.com/mooondark/SteelFrameGenerator/releases)
 
-**Attention, ce visualiseur nécessite l'utilisation de l'[API](https://github.com/Graitec-Group/advance-design-api) d'Advance Design**
+**Attention, ce script nécessite l'utilisation de l'[API](https://github.com/Graitec-Group/advance-design-api) d'Advance Design**
 
 **Une licence est également nécessaire afin de l'utiliser, et le logiciel AD2027 ou supérieur doit être installé**
 
