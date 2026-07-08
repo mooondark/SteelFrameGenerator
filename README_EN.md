@@ -19,4 +19,7 @@ Generator of simple steel frames using the Advance Design API
 [![GitHub release](https://img.shields.io/github/v/release/mooondark/SteelFrameGenerator)](https://github.com/mooondark/SteelFrameGenerator/releases)
 
 **Warning: this tool requires the use of the Advance Design [API](https://github.com/Graitec-Group/advance-design-api)**
+
 **A license is also required to use it, and AD2027 or later must be installed**
+
+See also [Advance Design Viewer](https://github.com/mooondark/ADViewer)
