@@ -4,7 +4,8 @@
 
 Générateur de portiques simples avec l'API d'Advance Design
 
-<img width="1313" height="1152" alt="image" src="https://github.com/user-attachments/assets/313e64f6-d329-44c2-b50a-e7772585375d" />
+<img width="1773" height="872" alt="image" src="https://github.com/user-attachments/assets/b81a49de-f785-417e-9bde-528766adb104" />
+
 
 ## Fonctionnalités
 
