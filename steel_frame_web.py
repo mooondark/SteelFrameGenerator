@@ -725,8 +725,8 @@ def main():
             background: #111827;
             border-radius: 6px;
             padding: 10px 12px;
-            height: calc(100vh - 520px);
-            min-height: 200px;
+            height: calc(50vh - 260px);
+            min-height: 120px;
             overflow-y: auto;
             line-height: 1.5;
             border: 1px solid #2d3a50;
@@ -773,11 +773,11 @@ def main():
     with col_form:
 
         # ---- Paramètres ----
-        with st.expander("⚙️ Paramètres (langue, API, serveur)", expanded=False):
+        with st.expander(T("ui_params_expander") or "⚙️ Paramètres (langue, API, serveur)", expanded=False):
             pc1, pc2 = st.columns([1, 2])
             with pc1:
                 lang_choice = st.selectbox(
-                    "Langue",
+                    T("ui_language") or "Langue",
                     options=list(LANG_LABELS.keys()),
                     format_func=lambda k: LANG_LABELS[k],
                     index=list(LANG_LABELS.keys()).index(st.session_state.lang),
@@ -789,13 +789,13 @@ def main():
                     st.rerun()
             with pc2:
                 st.session_state.host = st.text_input(
-                    "URL API Advance Design",
+                    T("ui_url_api_ad") or "URL API Advance Design",
                     value=st.session_state.host,
                     key="_host_input",
                 )
 
             st.session_state.api_server_exe = st.text_input(
-                "Chemin AD.API.Srv.exe",
+                T("ui_chemin_exe") or "Chemin AD.API.Srv.exe",
                 value=st.session_state.api_server_exe,
                 key="_exe_input",
             )
@@ -827,8 +827,8 @@ def main():
             proc = st.session_state.api_proc
             api_running = proc is not None and proc.poll() is None
             if api_running:
-                st.success("API active", icon="✅")
-                if st.button("⏹ Arrêter l'API", use_container_width=True):
+                st.success(T("start_api") or "API active", icon="✅")
+                if st.button(T("ui_btn_stop_api") or "⏹ Arrêter l'API", use_container_width=True):
                     try:
                         proc.terminate()
                         proc.wait(timeout=5)
@@ -840,18 +840,18 @@ def main():
                     st.session_state.api_proc = None
                     st.rerun()
             else:
-                st.caption("API arrêtée")
-                if st.button("▶ Démarrer l'API", use_container_width=True):
+                st.caption(T("stop_api") or "API arrêtée")
+                if st.button(T("ui_btn_start_api") or "▶ Démarrer l'API", use_container_width=True):
                     exe = os.path.normpath(st.session_state.api_server_exe)
                     if not os.path.isfile(exe):
-                        st.error(f"Introuvable :\n{exe}")
+                        st.error(T("err_api_server_exe_not_found", path=exe) or f"Introuvable :\n{exe}")
                     else:
                         try:
                             p = subprocess.Popen([exe, "/console"], cwd=os.path.dirname(exe) or None)
                             st.session_state.api_proc = p
                             st.rerun()
                         except Exception as e:
-                            st.error(f"Erreur : {e}")
+                            st.error(T("err_api_server_start_failed", details=str(e)) or f"Erreur : {e}")
 
 
         # ---- Géométrie ----
@@ -936,7 +936,7 @@ def main():
 
 
         # ---- Boutons d'action ----
-        btn_c1, btn_c2, _ = st.columns([3, 1, 4])
+        btn_c1, btn_c2, btn_c3 = st.columns([3, 1, 3])
         with btn_c1:
             btn_create = st.button(
                 "▶ " + (T("ui_btn_creer") or "Générer la structure"),
@@ -945,9 +945,16 @@ def main():
                 use_container_width=True,
             )
         with btn_c2:
-            if st.button("🗑", help="Effacer le journal", use_container_width=True):
+            if st.button("🗑", help=T("ui_btn_effacer") or "Effacer le journal", use_container_width=True):
                 st.session_state.log_lines = []
                 st.rerun()
+        with btn_c3:
+            if st.session_state.running:
+                st.markdown(
+                    f"<span style='line-height:36px; font-size:0.88rem; color:#E8A840;'>"
+                    f"⏳ {T('ui_generation_en_cours') or 'Génération en cours…'}</span>",
+                    unsafe_allow_html=True,
+                )
 
     # ==================================================================
     # COLONNE DROITE — Journal (1/3)
@@ -962,10 +969,10 @@ def main():
             st.markdown(
                 f'<img src="data:image/png;base64,{_b64}" '
                 f'style="width:100%; border-radius:6px; margin-bottom:6px;" '
-                f'alt="Schéma géométrique portique">',
+                f'alt="{T("ui_schema_alt") or "Schéma géométrique portique"}">',
                 unsafe_allow_html=True,
             )
-        st.markdown('<div class="sfg-card-title">📋 Journal d\'exécution</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="sfg-card-title">{T("ui_journal_execution") or "📋 Journal d\'exécution"}</div>', unsafe_allow_html=True)
 
         lines_html = ""
         for (msg, tag) in st.session_state.log_lines:
@@ -980,9 +987,9 @@ def main():
         if st.session_state.log_lines:
             last_tags = [tag for _, tag in st.session_state.log_lines]
             if "error" in last_tags:
-                st.error("Génération échouée.")
-            elif any("RÉUSSIE" in msg or "succes" in msg.lower() for msg, _ in st.session_state.log_lines):
-                st.success("Structure générée avec succès.")
+                st.error(T("ui_generation_echouee") or "Génération échouée.")
+            elif any("RÉUSSIE" in msg or "succes" in msg.lower() or "REUSSIE" in msg.upper() for msg, _ in st.session_state.log_lines):
+                st.success(T("ui_generation_reussie") or "Structure générée avec succès.")
 
     # ==================================================================
     # LANCEMENT
@@ -991,7 +998,7 @@ def main():
         if st.session_state.nouveau_projet:
             nom = st.session_state.nouveau_nom.strip()
             if not nom:
-                st.error("Le nom du projet est obligatoire.")
+                st.error(T("ui_projet_obligatoire") or "Le nom du projet est obligatoire.")
                 st.stop()
             if not nom.lower().endswith(".fto"):
                 nom += ".fto"
@@ -999,7 +1006,7 @@ def main():
         else:
             fto_path = st.session_state.fto.strip()
             if not fto_path:
-                st.error("Veuillez saisir le chemin du fichier .fto.")
+                st.error(T("ui_chemin_obligatoire") or "Veuillez saisir le chemin du fichier .fto.")
                 st.stop()
 
         params = {
@@ -1032,7 +1039,7 @@ def main():
 
         host = st.session_state.host.strip().rstrip("/")
 
-        with st.spinner("Génération en cours…"):
+        with st.spinner(T("ui_generation_en_cours") or "Génération en cours…"):
             _run_generation(params, host)
 
         st.rerun()
