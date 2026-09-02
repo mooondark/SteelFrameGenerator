@@ -3,15 +3,6 @@ steel_frame_web.py
 ==================
 Version Streamlit de SteelFrameGenerator.
 
-Changelog :
-    1.25 - Schéma géométrique dans la colonne journal
-         - Mise à jour du layout (2/3 formulaire, 1/3 journal)
-         - Bouton API déplacé dans la section Projet
-         - Espacement et champs compacts
-         - Compatible PyInstaller (lanceur .exe)
-Remplace l'interface PySide6 par une interface web accessible depuis un navigateur.
-Toute la logique métier (API Advance Design) est conservée à l'identique.
-
 Prérequis :
     pip install streamlit requests
 
@@ -46,7 +37,7 @@ except ImportError:
 # CONSTANTES
 # =============================================================================
 
-VERSION = "1.25"
+VERSION = "1.26"
 DEFAULT_HOST = "http://localhost:52000"
 DEFAULT_API_SERVER_EXE = r"C:\Program Files\Graitec\Advance Design\2027\Bin\AD.API.Srv.exe"
 DEFAULT_LANG = "fr"

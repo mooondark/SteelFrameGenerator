@@ -28,17 +28,17 @@ if errorlevel 1 (
 :: 2. Installation / mise a jour de Streamlit et requests
 :: ------------------------------------------------------------
 echo.
-echo  Verification des dependances...
+echo  Vérification des dépendances...
 python -m pip install --quiet --upgrade streamlit requests
 if errorlevel 1 (
     echo.
-    echo  [ERREUR] Impossible d'installer les dependances.
-    echo  Verifiez votre connexion Internet et les droits administrateur.
+    echo  [ERREUR] Impossible d'installer les dépendances.
+    echo  Vérifiez votre connexion Internet et les droits administrateur.
     echo.
     pause
     exit /b 1
 )
-echo  Dependances OK.
+echo  Dépendances OK.
 
 :: ------------------------------------------------------------
 :: 3. Vérification du script Python
@@ -47,7 +47,7 @@ if not exist "%SCRIPT%" (
     echo.
     echo  [ERREUR] Fichier introuvable : %SCRIPT%
     echo  Assurez-vous que lancer.bat et steel_frame_web.py
-    echo  sont dans le meme dossier.
+    echo  sont dans le même dossier.
     echo.
     pause
     exit /b 1
@@ -84,6 +84,6 @@ python -m streamlit run "%SCRIPT%" ^
 :: 5. L'application s'est fermée
 :: ------------------------------------------------------------
 echo.
-echo  L'application Steel Frame Generator s'est arretee.
+echo  L'application Steel Frame Generator s'est arrêtée.
 pause
 endlocal
