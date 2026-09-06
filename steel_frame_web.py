@@ -4,7 +4,7 @@ steel_frame_web.py
 Version Streamlit de SteelFrameGenerator.
 
 Prérequis :
-    pip install streamlit requests
+    pip install streamlit requests plotly
 
 Lancement :
     streamlit run steel_frame_web.py
@@ -21,9 +21,7 @@ import os
 import socket
 import subprocess
 import sys
-import threading
 import urllib.parse
-from pathlib import Path
 
 import streamlit as st
 
@@ -33,11 +31,26 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
     import requests
 
+try:
+    import plotly  # noqa: F401
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "plotly"])
+
+# Session HTTP réutilisée : keep-alive + pooling de connexions.
+# Évite un handshake TCP par requête (des centaines lors d'une génération).
+_SESSION = requests.Session()
+_adapter = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=8)
+_SESSION.mount("http://", _adapter)
+_SESSION.mount("https://", _adapter)
+
+# Sentinelle d'environnement pour le worker Streamlit en mode PyInstaller.
+_SFG_STREAMLIT_WORKER = "_SFG_STREAMLIT_WORKER"
+
 # =============================================================================
 # CONSTANTES
 # =============================================================================
 
-VERSION = "1.26"
+VERSION = "1.27"
 DEFAULT_HOST = "http://localhost:52000"
 DEFAULT_API_SERVER_EXE = r"C:\Program Files\Graitec\Advance Design\2027\Bin\AD.API.Srv.exe"
 DEFAULT_LANG = "fr"
@@ -172,6 +185,126 @@ def T(key: str, **kw) -> str:
     value = value.replace("\\n", "\n")
     return value.format(**kw) if kw else value
 
+
+def _native_pick(save: bool, initial: str = ""):
+    """Boite de dialogue systeme (tkinter) pour choisir un fichier .fto.
+    Retourne le chemin, '' si annule, None si tkinter indisponible."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception:
+        return None
+
+    root = tk.Tk()
+    root.withdraw()
+    root.wm_attributes("-topmost", 1)
+    kw = {
+        "title": T("browse_title_fto") or "Fichier projet Advance Design",
+        "filetypes": [("Advance Design (*.fto)", "*.fto"), ("*.*", "*.*")],
+    }
+    if initial:
+        d = os.path.dirname(initial)
+        if os.path.isdir(d):
+            kw["initialdir"] = d
+        if os.path.basename(initial):
+            kw["initialfile"] = os.path.basename(initial)
+    if save:
+        path = filedialog.asksaveasfilename(defaultextension=".fto", **kw)
+    else:
+        path = filedialog.askopenfilename(**kw)
+    root.destroy()
+    return os.path.normpath(path) if path else ""
+
+
+@st.cache_data(show_spinner=False)
+def _schema_data_uri() -> str:
+    """Encode schema_portique.png en data-URI, une seule fois (mis en cache)."""
+    import base64
+    path = os.path.join(get_app_dir(), "schema_portique.png")
+    if not os.path.isfile(path):
+        return ""
+    with open(path, "rb") as f:
+        return "data:image/png;base64," + base64.b64encode(f.read()).decode()
+
+
+def _wireframe_segments(p):
+    """Reconstruit la geometrie filaire (sans appel API) : memes formules que build_structure."""
+    n = int(p["n"]); e = float(p["e"])
+    Hg, Hd, L, AR, F = float(p["Hg"]), float(p["Hd"]), float(p["L"]), float(p["AR"]), float(p["F"])
+    Npg, Npd = int(p["Npg"]), int(p["Npd"])
+    Dbg, Dbd = float(p["Dbg"]), float(p["Dbd"])
+
+    H_faitage = max(Hg, Hd) + F
+    Lg = math.sqrt(AR ** 2 + (H_faitage - Hg) ** 2)
+    Ld = math.sqrt((L - AR) ** 2 + (H_faitage - Hd) ** 2)
+    if Lg <= 0 or Ld <= 0 or Npg < 2 or Npd < 2 or Dbg >= Lg or Dbd >= Ld:
+        raise ValueError("geometrie invalide")
+
+    portiques, pannes, supports = [], [], []
+    for i in range(n):
+        Yi = i * e
+        pied_g, sommet_g = (0, Yi, 0), (0, Yi, Hg)
+        pied_d, sommet_d = (L, Yi, 0), (L, Yi, Hd)
+        faitage = (AR, Yi, H_faitage)
+        portiques += [(pied_g, sommet_g), (pied_d, sommet_d),
+                      (sommet_g, faitage), (sommet_d, faitage)]
+        supports += [pied_g, pied_d]
+
+    pos_g = [k * (Lg - Dbg) / (Npg - 1) for k in range(Npg)]
+    pos_d = [k * (Ld - Dbd) / (Npd - 1) for k in range(Npd)]
+    for i in range(n - 1):
+        Y0, Y1 = i * e, (i + 1) * e
+        sg0, f0 = (0, Y0, Hg), (AR, Y0, H_faitage)
+        sg1, f1 = (0, Y1, Hg), (AR, Y1, H_faitage)
+        sd0, fd0 = (L, Y0, Hd), (AR, Y0, H_faitage)
+        sd1, fd1 = (L, Y1, Hd), (AR, Y1, H_faitage)
+        for d in pos_g:
+            pannes.append((point_on_rafter(sg0, f0, d), point_on_rafter(sg1, f1, d)))
+        for d in pos_d:
+            pannes.append((point_on_rafter(sd0, fd0, d), point_on_rafter(sd1, fd1, d)))
+
+    return portiques, pannes, supports
+
+
+def _preview_figure(p):
+    """Vue 3D filaire isometrique interactive (rotation / zoom via Plotly)."""
+    import plotly.graph_objects as go
+
+    portiques, pannes, supports = _wireframe_segments(p)
+
+    def _lines(segs, color, name, width):
+        xs, ys, zs = [], [], []
+        for a, b in segs:
+            xs += [a[0], b[0], None]
+            ys += [a[1], b[1], None]
+            zs += [a[2], b[2], None]
+        return go.Scatter3d(x=xs, y=ys, z=zs, mode="lines",
+                            line=dict(color=color, width=width), name=name,
+                            hoverinfo="skip")
+
+    fig = go.Figure([
+        _lines(portiques, "#4A7FE0", "Poteaux / arbaletriers", 5),
+        _lines(pannes, "#2CB67D", "Pannes", 2),
+        go.Scatter3d(
+            x=[s[0] for s in supports], y=[s[1] for s in supports], z=[s[2] for s in supports],
+            mode="markers", name="Appuis", hoverinfo="skip",
+            marker=dict(size=4, color="#E8A840", symbol="diamond"),
+        ),
+    ])
+    fig.update_layout(
+        height=340,
+        margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
+        scene=dict(
+            aspectmode="data",
+            xaxis=dict(visible=False), yaxis=dict(visible=False), zaxis=dict(visible=False),
+            camera=dict(projection=dict(type="orthographic"),
+                        eye=dict(x=1.6, y=-1.6, z=1.1)),
+        ),
+    )
+    return fig
+
 # =============================================================================
 # LOGIQUE MÉTIER — API ADVANCE DESIGN (inchangée vs version PySide6)
 # =============================================================================
@@ -194,15 +327,18 @@ def check_port(host: str) -> None:
 
 def _check(response: requests.Response, label: str) -> dict:
     try:
+        data = response.json()
+    except ValueError:
+        data = None
+
+    try:
         response.raise_for_status()
     except requests.HTTPError as e:
-        try:
-            body = response.json()
-        except Exception:
-            body = response.text[:500]
+        body = data if data is not None else response.text[:500]
         raise RuntimeError(f"[{label}] HTTP {response.status_code} — {body}") from e
 
-    data    = response.json()
+    if data is None:
+        raise RuntimeError(f"[{label}] Réponse non-JSON — {response.text[:500]}")
     details = data.get("details", {})
     if not details.get("success", True):
         messages = "; ".join(d.get("message", "") for d in details.get("diagnostics", []))
@@ -211,7 +347,7 @@ def _check(response: requests.Response, label: str) -> dict:
 
 
 def new_project(host, fto_path):
-    resp = requests.post(
+    resp = _SESSION.post(
         f"{host}/api/Model/management/NewProject",
         params={"filename": fto_path}, json={}, timeout=30
     )
@@ -219,7 +355,7 @@ def new_project(host, fto_path):
 
 
 def open_project(host, fto_path):
-    resp = requests.post(
+    resp = _SESSION.post(
         f"{host}/api/Model/management/OpenProject",
         params={"filename": fto_path}, json={}, timeout=30
     )
@@ -228,7 +364,7 @@ def open_project(host, fto_path):
 
 def close_project(host):
     try:
-        requests.post(f"{host}/api/Model/management/CloseProject", json={}, timeout=15)
+        _SESSION.post(f"{host}/api/Model/management/CloseProject", json={}, timeout=15)
     except Exception:
         pass
 
@@ -236,7 +372,7 @@ def close_project(host):
 def create_material(host, name):
     props = STEEL_PROPS[name]
     data  = _check(
-        requests.post(f"{host}/api/Model/materials/CreateMaterial",
+        _SESSION.post(f"{host}/api/Model/materials/CreateMaterial",
                       json={"$type": "MaterialSteel", "name": name, **props}),
         "CreateMaterial"
     )
@@ -245,7 +381,7 @@ def create_material(host, name):
 
 def create_section(host, section_name):
     data = _check(
-        requests.post(f"{host}/api/Model/sections/CreateSection",
+        _SESSION.post(f"{host}/api/Model/sections/CreateSection",
                       params={"sectionName": section_name}),
         f"CreateSection({section_name})"
     )
@@ -266,7 +402,7 @@ def create_linear_element(host, pt_start, pt_end, mat_id, sec_id,
     if relaxation is not None:
         payload["relaxationTotale"] = relaxation
     data = _check(
-        requests.post(f"{host}/api/Model/elements/CreateElement", json=payload),
+        _SESSION.post(f"{host}/api/Model/elements/CreateElement", json=payload),
         "CreateElement(linear)"
     )
     return data["data"]["value"]
@@ -285,7 +421,7 @@ def create_support(host, pt, mat_id, type_appui):
         "restraints":      restraints,
     }
     data = _check(
-        requests.post(f"{host}/api/Model/elements/CreateElement", json=payload),
+        _SESSION.post(f"{host}/api/Model/elements/CreateElement", json=payload),
         f"CreateSupport({type_appui})"
     )
     return data["data"]["value"]
@@ -293,13 +429,13 @@ def create_support(host, pt, mat_id, type_appui):
 
 def create_dead_load_case(host):
     fam_data = _check(
-        requests.post(f"{host}/api/Model/elements/CreateInformationalElement",
+        _SESSION.post(f"{host}/api/Model/elements/CreateInformationalElement",
                       json={"$type": "LoadCaseFamily_DeadLoads", "name": T("ad_famille_g") or "Permanentes"}),
         "CreateFamily(G)"
     )
     fam_eid  = fam_data["data"]["value"]
     case_data = _check(
-        requests.post(
+        _SESSION.post(
             f"{host}/api/Model/elements/CreateInformationalElement",
             json={
                 "$type":             "LoadCase_DeadLoads",
@@ -325,7 +461,7 @@ def create_load_area(host, pts_list, label="LoadArea", span_direction=None):
             "loadTransferSpanDirectionType":  span_direction,
         }
     data = _check(
-        requests.post(f"{host}/api/Model/elements/CreateElement", json=payload),
+        _SESSION.post(f"{host}/api/Model/elements/CreateElement", json=payload),
         f"CreateLoadArea({label})"
     )
     return data["data"]["value"]
@@ -554,7 +690,7 @@ def _append_log(msg: str, tag: str = "info"):
 
 
 def _run_generation(params: dict, host: str):
-    """Exécuté dans un thread secondaire."""
+    """Exécution synchrone (sous st.spinner) : remplit st.session_state.log_lines."""
     st.session_state.running = True
     st.session_state.log_lines = []
 
@@ -803,23 +939,38 @@ def main():
                 value=st.session_state.nouveau_projet,
             )
         with pj2:
-            if st.session_state.nouveau_projet:
-                st.session_state.nouveau_nom = st.text_input(
-                    T("ui_nouveau_nom") or "Nom du nouveau projet",
-                    value=st.session_state.nouveau_nom,
-                )
-            else:
-                st.session_state.fto = st.text_input(
-                    T("ui_fichier_existant") or "Chemin du fichier .fto",
-                    value=st.session_state.fto,
-                    placeholder=r"C:\Projets\mon_projet.fto",
-                )
+            is_new = st.session_state.nouveau_projet
+            field = "nouveau_nom" if is_new else "fto"
+            tc, bc = st.columns([5, 1])
+            with tc:
+                if is_new:
+                    st.session_state.nouveau_nom = st.text_input(
+                        T("ui_nouveau_nom") or "Nom du nouveau projet",
+                        value=st.session_state.nouveau_nom,
+                    )
+                else:
+                    st.session_state.fto = st.text_input(
+                        T("ui_fichier_existant") or "Chemin du fichier .fto",
+                        value=st.session_state.fto,
+                        placeholder=r"C:\Projets\mon_projet.fto",
+                    )
+            with bc:
+                st.markdown("<div style='height:1.6rem;'></div>", unsafe_allow_html=True)
+                if st.button("📂", key="browse_fto",
+                             help=T("ui_btn_parcourir") or "Parcourir…", width="stretch"):
+                    res = _native_pick(save=is_new, initial=st.session_state[field])
+                    if res is None:
+                        st.warning(T("ui_dialog_indispo")
+                                   or "Boîte de dialogue indisponible sur ce système.")
+                    elif res:
+                        st.session_state[field] = res
+                        st.rerun()
         with pj3:
             proc = st.session_state.api_proc
             api_running = proc is not None and proc.poll() is None
             if api_running:
-                st.success(T("start_api") or "API active", icon="✅")
-                if st.button(T("ui_btn_stop_api") or "⏹ Arrêter l'API", use_container_width=True):
+                st.success(T("ui_api_active") or "API active", icon="✅")
+                if st.button(T("ui_btn_stop_api") or "⏹ Arrêter l'API", width="stretch"):
                     try:
                         proc.terminate()
                         proc.wait(timeout=5)
@@ -831,8 +982,8 @@ def main():
                     st.session_state.api_proc = None
                     st.rerun()
             else:
-                st.caption(T("stop_api") or "API arrêtée")
-                if st.button(T("ui_btn_start_api") or "▶ Démarrer l'API", use_container_width=True):
+                st.caption(T("ui_api_inactive") or "API inactive")
+                if st.button(T("ui_btn_start_api") or "▶ Démarrer l'API", width="stretch"):
                     exe = os.path.normpath(st.session_state.api_server_exe)
                     if not os.path.isfile(exe):
                         st.error(T("err_api_server_exe_not_found", path=exe) or f"Introuvable :\n{exe}")
@@ -849,16 +1000,16 @@ def main():
         st.markdown('<div class="sfg-card-title">📐 Géométrie</div>', unsafe_allow_html=True)
         g1, g2, g3, g4 = st.columns(4)
         with g1:
-            st.session_state.n  = st.number_input(T("ui_nb_portiques") or "Nb portiques",  min_value=2,    max_value=25,    value=st.session_state.n,  step=1)
-            st.session_state.L  = st.number_input(T("ui_portee") or "Portée L (m)",        min_value=0.1,  max_value=999.0, value=st.session_state.L,  step=0.1,  format="%.2f")
+            st.number_input(T("ui_nb_portiques") or "Nb portiques",  min_value=2,    max_value=25,    step=1,               key="n")
+            st.number_input(T("ui_portee") or "Portée L (m)",        min_value=0.1,  max_value=999.0, step=0.1,  format="%.2f", key="L")
         with g2:
-            st.session_state.e  = st.number_input(T("ui_entraxe") or "Entraxe e (m)",      min_value=0.1,  max_value=999.0, value=st.session_state.e,  step=0.1,  format="%.2f")
-            st.session_state.AR = st.number_input(T("ui_ar") or "Abscisse faîtage AR (m)", min_value=0.01, max_value=999.0, value=st.session_state.AR, step=0.1,  format="%.2f")
+            st.number_input(T("ui_entraxe") or "Entraxe e (m)",      min_value=0.1,  max_value=999.0, step=0.1,  format="%.2f", key="e")
+            st.number_input(T("ui_ar") or "Abscisse faîtage AR (m)", min_value=0.01, max_value=999.0, step=0.1,  format="%.2f", key="AR")
         with g3:
-            st.session_state.Hg = st.number_input(T("ui_hg") or "Hg (m)",                  min_value=0.1,  max_value=999.0, value=st.session_state.Hg, step=0.1,  format="%.2f")
-            st.session_state.F  = st.number_input(T("ui_fleche") or "Flèche F (m)",        min_value=0.01, max_value=999.0, value=st.session_state.F,  step=0.01, format="%.2f")
+            st.number_input(T("ui_hg") or "Hg (m)",                  min_value=0.1,  max_value=999.0, step=0.1,  format="%.2f", key="Hg")
+            st.number_input(T("ui_fleche") or "Flèche F (m)",        min_value=0.01, max_value=999.0, step=0.01, format="%.2f", key="F")
         with g4:
-            st.session_state.Hd = st.number_input(T("ui_hd") or "Hd (m)",                  min_value=0.1,  max_value=999.0, value=st.session_state.Hd, step=0.1,  format="%.2f")
+            st.number_input(T("ui_hd") or "Hd (m)",                  min_value=0.1,  max_value=999.0, step=0.1,  format="%.2f", key="Hd")
             appui_idx = APPUIS_VALIDES.index(st.session_state.TypeAppui) if st.session_state.TypeAppui in APPUIS_VALIDES else 0
             st.session_state.TypeAppui = st.selectbox(
                 T("ui_type_appui") or "Type d'appui",
@@ -917,13 +1068,13 @@ def main():
         st.markdown('<div class="sfg-card-title">📏 Distribution des pannes</div>', unsafe_allow_html=True)
         p1, p2, p3, p4 = st.columns(4)
         with p1:
-            st.session_state.Npg = st.number_input(T("ui_npg") or "Npg – versant G", min_value=2,   max_value=99,   value=st.session_state.Npg, step=1)
+            st.number_input(T("ui_npg") or "Npg – versant G", min_value=2,   max_value=99,    step=1,               key="Npg")
         with p2:
-            st.session_state.Dbg = st.number_input(T("ui_dbg") or "Dbg (m)",         min_value=0.0,  max_value=999.0, value=st.session_state.Dbg, step=0.05, format="%.2f")
+            st.number_input(T("ui_dbg") or "Dbg (m)",         min_value=0.0, max_value=999.0, step=0.05, format="%.2f", key="Dbg")
         with p3:
-            st.session_state.Npd = st.number_input(T("ui_npd") or "Npd – versant D", min_value=2,   max_value=99,   value=st.session_state.Npd, step=1)
+            st.number_input(T("ui_npd") or "Npd – versant D", min_value=2,   max_value=99,    step=1,               key="Npd")
         with p4:
-            st.session_state.Dbd = st.number_input(T("ui_dbd") or "Dbd (m)",         min_value=0.0,  max_value=999.0, value=st.session_state.Dbd, step=0.05, format="%.2f")
+            st.number_input(T("ui_dbd") or "Dbd (m)",         min_value=0.0, max_value=999.0, step=0.05, format="%.2f", key="Dbd")
 
 
         # ---- Boutons d'action ----
@@ -933,10 +1084,10 @@ def main():
                 "▶ " + (T("ui_btn_creer") or "Générer la structure"),
                 type="primary",
                 disabled=st.session_state.running,
-                use_container_width=True,
+                width="stretch",
             )
         with btn_c2:
-            if st.button("🗑", help=T("ui_btn_effacer") or "Effacer le journal", use_container_width=True):
+            if st.button("🗑", help=T("ui_btn_effacer") or "Effacer le journal", width="stretch"):
                 st.session_state.log_lines = []
                 st.rerun()
         with btn_c3:
@@ -951,24 +1102,29 @@ def main():
     # COLONNE DROITE — Journal (1/3)
     # ==================================================================
     with col_log:
-        # Schéma géométrique
-        import base64
-        _schema_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema_portique.png")
-        if os.path.isfile(_schema_path):
-            with open(_schema_path, "rb") as _f:
-                _b64 = base64.b64encode(_f.read()).decode()
-            st.markdown(
-                f'<img src="data:image/png;base64,{_b64}" '
-                f'style="width:100%; border-radius:6px; margin-bottom:6px;" '
-                f'alt="{T("ui_schema_alt") or "Schéma géométrique portique"}">',
-                unsafe_allow_html=True,
-            )
+        # Vue 3D filaire isométrique (dynamique) ; repli sur le schéma fixe si géométrie invalide
+        try:
+            _preview_p = {k: st.session_state[k]
+                          for k in ("n", "e", "Hg", "Hd", "L", "AR", "F",
+                                    "Npg", "Npd", "Dbg", "Dbd")}
+            st.plotly_chart(_preview_figure(_preview_p), width="stretch",
+                            config={"displayModeBar": False})
+        except Exception:
+            _schema_uri = _schema_data_uri()
+            if _schema_uri:
+                st.markdown(
+                    f'<img src="{_schema_uri}" '
+                    f'style="width:100%; border-radius:6px; margin-bottom:6px;" '
+                    f'alt="{T("ui_schema_alt") or "Schéma géométrique portique"}">',
+                    unsafe_allow_html=True,
+                )
         st.markdown(f'<div class="sfg-card-title">{T("ui_journal_execution") or "📋 Journal d\'exécution"}</div>', unsafe_allow_html=True)
 
-        lines_html = ""
-        for (msg, tag) in st.session_state.log_lines:
-            safe = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            lines_html += f'<div class="{tag}">{safe}</div>'
+        lines_html = "".join(
+            f'<div class="{tag}">'
+            f'{msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</div>'
+            for msg, tag in st.session_state.log_lines
+        )
 
         st.markdown(
             f'<div class="sfg-log">{lines_html}</div>',
@@ -999,6 +1155,8 @@ def main():
             if not fto_path:
                 st.error(T("ui_chemin_obligatoire") or "Veuillez saisir le chemin du fichier .fto.")
                 st.stop()
+
+        fto_path = os.path.normpath(fto_path)  # l'API AD exige des separateurs "\"
 
         params = {
             "fto":            fto_path,
