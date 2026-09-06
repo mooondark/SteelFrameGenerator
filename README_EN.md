@@ -3,7 +3,8 @@
 [🇫🇷](README.md) 🇬🇧
 
 Generator of simple steel frames using the Advance Design API
-<img width="1773" height="872" alt="image" src="https://github.com/user-attachments/assets/372c0bae-716a-4e07-934d-e8411c6e9f1e" />
+
+<img width="1790" height="846" alt="image" src="https://github.com/user-attachments/assets/3e0340c7-ac99-40dc-a972-e7d4d5dc251a" />
 
 
 ## Features
