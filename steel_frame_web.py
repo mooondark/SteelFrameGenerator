@@ -50,7 +50,7 @@ _SFG_STREAMLIT_WORKER = "_SFG_STREAMLIT_WORKER"
 # CONSTANTES
 # =============================================================================
 
-VERSION = "1.27"
+VERSION = "1.27a"
 DEFAULT_HOST = "http://localhost:52000"
 DEFAULT_API_SERVER_EXE = r"C:\Program Files\Graitec\Advance Design\2027\Bin\AD.API.Srv.exe"
 DEFAULT_LANG = "fr"
@@ -786,7 +786,7 @@ def main():
 
         /* Titre de section */
         .sfg-card-title {
-            font-size: 0.72rem;
+            font-size: 0.95rem;
             font-weight: 700;
             letter-spacing: .09em;
             text-transform: uppercase;
@@ -931,7 +931,7 @@ def main():
 
 
         # ---- Projet ----
-        st.markdown('<div class="sfg-card-title">📁 Projet</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="sfg-card-title">📁 {T("ui_web_projet") or "Projet"}</div>', unsafe_allow_html=True)
         pj1, pj2, pj3 = st.columns([1, 2, 1])
         with pj1:
             st.session_state.nouveau_projet = st.checkbox(
@@ -997,7 +997,7 @@ def main():
 
 
         # ---- Géométrie ----
-        st.markdown('<div class="sfg-card-title">📐 Géométrie</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="sfg-card-title">📐 {T("ui_web_geo") or "Géométrie"}</div>', unsafe_allow_html=True)
         g1, g2, g3, g4 = st.columns(4)
         with g1:
             st.number_input(T("ui_nb_portiques") or "Nb portiques",  min_value=2,    max_value=25,    step=1,               key="n")
@@ -1025,7 +1025,7 @@ def main():
 
 
         # ---- Sections & Matériau ----
-        st.markdown('<div class="sfg-card-title">🔩 Sections & Matériau</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="sfg-card-title">🔩 {T("ui_web_sections") or "Sections & Matériau"}</div>', unsafe_allow_html=True)
         s1, s2, s3, s4 = st.columns([1, 2, 1, 2])
         with s1:
             st.session_state.Sp_fam = st.selectbox(
@@ -1065,7 +1065,7 @@ def main():
 
 
         # ---- Distribution des pannes ----
-        st.markdown('<div class="sfg-card-title">📏 Distribution des pannes</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="sfg-card-title">📏 {T("ui_web_pannes") or "Distribution des pannes"}</div>', unsafe_allow_html=True)
         p1, p2, p3, p4 = st.columns(4)
         with p1:
             st.number_input(T("ui_npg") or "Npg – versant G", min_value=2,   max_value=99,    step=1,               key="Npg")
