@@ -1,72 +1,72 @@
 @echo off
 :: ============================================================
-::  Steel Frame Generator — Lanceur Web (Streamlit)
-::  Double-cliquez sur ce fichier pour démarrer l'application.
-::  Le navigateur s'ouvre automatiquement sur http://localhost:8501
+::  Steel Frame Generator - Web Launcher (Streamlit)
+::  Double-click this file to start the application.
+::  The browser opens automatically at http://localhost:8501
 :: ============================================================
 setlocal
 
-:: Répertoire du script (même dossier que ce .bat)
+:: Script directory (same folder as this .bat)
 set "APP_DIR=%~dp0"
 set "SCRIPT=%APP_DIR%steel_frame_web.py"
 
 :: ------------------------------------------------------------
-:: 1. Vérification de Python
+:: 1. Python check
 :: ------------------------------------------------------------
 python --version >nul 2>&1
 if errorlevel 1 (
     echo.
-    echo  [ERREUR] Python est introuvable dans le PATH.
-    echo  Installez Python depuis https://www.python.org/downloads/
-    echo  et cochez "Add Python to PATH" lors de l'installation.
+    echo  [ERROR] Python was not found in the PATH.
+    echo  Install Python from https://www.python.org/downloads/
+    echo  and check "Add Python to PATH" during installation.
     echo.
     pause
     exit /b 1
 )
 
 :: ------------------------------------------------------------
-:: 2. Installation / mise a jour de Streamlit et requests
+:: 2. Install / update Streamlit and requests
 :: ------------------------------------------------------------
 echo.
-echo  Vérification des dépendances...
+echo  Checking dependencies...
 python -m pip install --quiet --upgrade streamlit requests
 if errorlevel 1 (
     echo.
-    echo  [ERREUR] Impossible d'installer les dépendances.
-    echo  Vérifiez votre connexion Internet et les droits administrateur.
+    echo  [ERROR] Unable to install the dependencies.
+    echo  Check your Internet connection and administrator rights.
     echo.
     pause
     exit /b 1
 )
-echo  Dépendances OK.
+echo  Dependencies OK.
 
 :: ------------------------------------------------------------
-:: 3. Vérification du script Python
+:: 3. Python script check
 :: ------------------------------------------------------------
 if not exist "%SCRIPT%" (
     echo.
-    echo  [ERREUR] Fichier introuvable : %SCRIPT%
-    echo  Assurez-vous que lancer.bat et steel_frame_web.py
-    echo  sont dans le même dossier.
+    echo  [ERROR] File not found: %SCRIPT%
+    echo  Make sure start.bat and steel_frame_web.py
+    echo  are in the same folder.
     echo.
     pause
     exit /b 1
 )
 
 :: ------------------------------------------------------------
-:: 4. Lancement de Streamlit
-::    --server.headless false  -> ouvre le navigateur auto
-::    --server.port 8501       -> port local (modifiable si besoin)
-::    --server.address localhost -> accessible uniquement en local
-::                                 Remplacer par 0.0.0.0 pour
-::                                 un acces reseau local (LAN)
+:: 4. Launch Streamlit
+::    --server.headless false  -> open the browser automatically
+::    --server.port 8501       -> local port (change if needed)
+::    --server.address localhost -> accessible only locally
+::                                 Replace with 0.0.0.0 for
+::                                 local network (LAN) access
 :: ------------------------------------------------------------
 echo.
-echo  Demarrage de Steel Frame Generator...
-echo  Ouverture du navigateur sur http://localhost:8501
+echo  Starting Steel Frame Generator...
+echo  Opening the browser at http://localhost:8501
 echo.
-echo  Pour arreter l'application : fermez cette fenetre
-echo  ou appuyez sur Ctrl+C dans cette console.
+echo  To stop the application: close this window
+echo  or press Ctrl+C in this console.
 echo.
 
 python -m streamlit run "%SCRIPT%" ^
@@ -81,9 +81,9 @@ python -m streamlit run "%SCRIPT%" ^
     --theme.textColor "#e2e8f0"
 
 :: ------------------------------------------------------------
-:: 5. L'application s'est fermée
+:: 5. The application has closed
 :: ------------------------------------------------------------
 echo.
-echo  L'application Steel Frame Generator s'est arrêtée.
+echo  Steel Frame Generator has stopped.
 pause
 endlocal

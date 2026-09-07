@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.28
+- Light / dark theme selector in Settings, persisted to config_sf.ini
+- start.bat translated to English
+
 ## 1.27
 - Dynamic 3D isometric wireframe preview (Plotly) replacing the static diagram
 - HTTP connection pooling (requests.Session) for faster generation

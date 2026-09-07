@@ -50,7 +50,7 @@ _SFG_STREAMLIT_WORKER = "_SFG_STREAMLIT_WORKER"
 # CONSTANTES
 # =============================================================================
 
-VERSION = "1.27a"
+VERSION = "1.28"
 DEFAULT_HOST = "http://localhost:52000"
 DEFAULT_API_SERVER_EXE = r"C:\Program Files\Graitec\Advance Design\2027\Bin\AD.API.Srv.exe"
 DEFAULT_LANG = "fr"
@@ -121,6 +121,7 @@ def load_config():
     section = parser["General"]
     if "language"       not in section: section["language"]       = DEFAULT_LANG;            needs_save = True
     if "api_server_exe" not in section: section["api_server_exe"] = DEFAULT_API_SERVER_EXE; needs_save = True
+    if "theme"          not in section: section["theme"]          = "dark";                 needs_save = True
 
     if needs_save:
         try:
@@ -132,12 +133,13 @@ def load_config():
     return {
         "language":       section.get("language",       DEFAULT_LANG),
         "api_server_exe": section.get("api_server_exe", DEFAULT_API_SERVER_EXE),
+        "theme":          section.get("theme",          "dark"),
     }
 
-def save_config(language, api_server_exe):
+def save_config(language, api_server_exe, theme="dark"):
     parser = configparser.ConfigParser(interpolation=None)
     parser.optionxform = str
-    parser["General"] = {"language": language, "api_server_exe": api_server_exe}
+    parser["General"] = {"language": language, "api_server_exe": api_server_exe, "theme": theme}
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             parser.write(f)
@@ -652,6 +654,7 @@ def _init_session():
     defaults = {
         "lang":           cfg.get("language", DEFAULT_LANG),
         "api_server_exe": cfg.get("api_server_exe", DEFAULT_API_SERVER_EXE),
+        "theme":          cfg.get("theme", "dark"),
         "host":           DEFAULT_HOST,
         "nouveau_projet": True,
         "nouveau_nom":    "nouveau_projet",
@@ -883,6 +886,126 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
+    # ---- Thème clair (surcharge le thème sombre par défaut) ----
+    if st.session_state.get("theme", "dark") == "light":
+        st.markdown("""
+        <style>
+            [data-testid="stAppViewContainer"],
+            [data-testid="stHeader"] { background: #ffffff; }
+            [data-testid="stAppViewContainer"] * { color: #1e2634; }
+            .sfg-card-title { color: #55637a; }
+            .sfg-log {
+                background: #f3f5f9;
+                border: 1px solid #d3dae6;
+            }
+            .sfg-log .info { color: #55637a; }
+
+            /* Expander "Paramètres" */
+            div[data-testid="stExpander"] details,
+            div[data-testid="stExpander"] summary {
+                background: #eef1f6 !important;
+                border-color: #c9d2e0 !important;
+            }
+            div[data-testid="stExpander"] summary:hover { background: #e2e7f0 !important; }
+            div[data-testid="stExpander"] summary span,
+            div[data-testid="stExpander"] summary p,
+            div[data-testid="stExpander"] summary svg { color: #1e2634 !important; fill: #1e2634 !important; }
+
+            /* Champs : fond blanc + contour clair (identique aux listes) */
+            div[data-testid="stNumberInput"] input,
+            div[data-testid="stTextInput"] input,
+            div[data-testid="stNumberInput"] div[data-baseweb="input"],
+            div[data-testid="stTextInput"] div[data-baseweb="input"],
+            div[data-testid="stSelectbox"] > div > div,
+            div[data-testid="stSelectbox"] div[data-baseweb="select"],
+            div[data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+                background: #ffffff !important;
+            }
+            /* Bordure unique 1px sur le conteneur de chaque widget */
+            div[data-testid="stNumberInput"] [data-testid="stNumberInputContainer"],
+            div[data-testid="stTextInput"] [data-testid="stTextInputRootElement"],
+            div[data-testid="stSelectbox"] div[data-baseweb="select"] {
+                border: 1px solid #c9d2e0 !important;
+                border-radius: 8px !important;
+                box-shadow: none !important;
+            }
+            /* Toute autre bordure interne supprimee */
+            div[data-testid="stNumberInput"] [data-testid="stNumberInputContainer"] *,
+            div[data-testid="stTextInput"] [data-testid="stTextInputRootElement"] *,
+            div[data-testid="stNumberInput"] input,
+            div[data-testid="stTextInput"] input {
+                border-color: transparent !important;
+                box-shadow: none !important;
+            }
+            div[data-testid="stNumberInput"] [data-testid="stNumberInputContainer"]:focus-within,
+            div[data-testid="stTextInput"] [data-testid="stTextInputRootElement"]:focus-within {
+                border-color: #1d4ed8 !important;
+            }
+            div[data-testid="stSelectbox"] div[data-baseweb="select"] * {
+                background-color: transparent !important;
+            }
+
+            /* Boutons +/- du number_input */
+            div[data-testid="stNumberInput"] button,
+            div[data-testid="stNumberInput"] [data-testid="stNumberInputStepUp"],
+            div[data-testid="stNumberInput"] [data-testid="stNumberInputStepDown"] {
+                background: #eef1f6 !important;
+                border-color: #c9d2e0 !important;
+            }
+            div[data-testid="stNumberInput"] button svg { fill: #1e2634 !important; }
+
+            /* Boutons secondaires (Démarrer/Arrêter API, Parcourir, Effacer le journal) */
+            div[data-testid="stButton"] > button:not([kind="primary"]),
+            [data-testid="stBaseButton-secondary"] {
+                background: #eef1f6 !important;
+                border: 1px solid #c9d2e0 !important;
+                color: #1e2634 !important;
+            }
+            div[data-testid="stButton"] > button:not([kind="primary"]):hover,
+            [data-testid="stBaseButton-secondary"]:hover {
+                background: #e2e7f0 !important;
+            }
+
+            /* Listes déroulantes ouvertes (menu en portail hors du conteneur) */
+            div[data-baseweb="popover"],
+            div[data-baseweb="popover"] > div,
+            div[data-baseweb="popover"] div[data-baseweb="menu"],
+            div[data-baseweb="popover"] ul,
+            [data-testid="stSelectboxVirtualDropdown"],
+            [data-testid="stSelectboxVirtualDropdown"] > div,
+            ul[role="listbox"] {
+                background: #ffffff !important;
+                border-color: #c9d2e0 !important;
+            }
+            div[data-baseweb="popover"] li,
+            div[data-baseweb="popover"] [role="option"],
+            [data-testid="stSelectboxVirtualDropdown"] li,
+            [data-testid="stSelectboxVirtualDropdown"] [role="option"],
+            ul[role="listbox"] li,
+            ul[role="listbox"] [role="option"] {
+                background: #ffffff !important;
+                color: #1e2634 !important;
+            }
+            div[data-baseweb="popover"] li *,
+            div[data-baseweb="popover"] [role="option"] *,
+            [data-testid="stSelectboxVirtualDropdown"] li *,
+            [data-testid="stSelectboxVirtualDropdown"] [role="option"] *,
+            ul[role="listbox"] li *,
+            ul[role="listbox"] [role="option"] * {
+                color: #1e2634 !important;
+                fill: #1e2634 !important;
+            }
+            div[data-baseweb="popover"] li:hover,
+            div[data-baseweb="popover"] [role="option"]:hover,
+            [data-testid="stSelectboxVirtualDropdown"] li:hover,
+            ul[role="listbox"] li:hover,
+            [role="option"][aria-selected="true"],
+            [role="option"][aria-current="true"] {
+                background: #e8edf6 !important;
+            }
+        </style>
+        """, unsafe_allow_html=True)
+
     # ------------------------------------------------------------------ EN-TÊTE
     st.markdown(
         "<h2 style='margin:0 0 2px 0; font-size:1.35rem;'>🏗️ Steel Frame Generator</h2>"
@@ -912,7 +1035,7 @@ def main():
                 )
                 if lang_choice != st.session_state.lang:
                     st.session_state.lang = lang_choice
-                    save_config(lang_choice, st.session_state.api_server_exe)
+                    save_config(lang_choice, st.session_state.api_server_exe, st.session_state.theme)
                     st.rerun()
             with pc2:
                 st.session_state.host = st.text_input(
@@ -921,12 +1044,30 @@ def main():
                     key="_host_input",
                 )
 
+            theme_opts = ["dark", "light"]
+            theme_labels = {
+                "dark":  T("ui_theme_dark") or "Sombre",
+                "light": T("ui_theme_light") or "Clair",
+            }
+            theme_choice = st.selectbox(
+                T("ui_theme") or "Thème",
+                options=theme_opts,
+                format_func=lambda k: theme_labels[k],
+                index=theme_opts.index(st.session_state.theme
+                                       if st.session_state.theme in theme_opts else "dark"),
+                key="_theme_select",
+            )
+            if theme_choice != st.session_state.theme:
+                st.session_state.theme = theme_choice
+                save_config(st.session_state.lang, st.session_state.api_server_exe, theme_choice)
+                st.rerun()
+
             st.session_state.api_server_exe = st.text_input(
                 T("ui_chemin_exe") or "Chemin AD.API.Srv.exe",
                 value=st.session_state.api_server_exe,
                 key="_exe_input",
             )
-            save_config(st.session_state.lang, st.session_state.api_server_exe)
+            save_config(st.session_state.lang, st.session_state.api_server_exe, st.session_state.theme)
 
 
 
