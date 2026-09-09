@@ -8,7 +8,7 @@ Prérequis :
 
 Lancement :
     streamlit run steel_frame_web.py
-    ou double-cliquer sur lancer.bat
+    ou double-cliquer sur start.bat
 """
 
 # =============================================================================
@@ -182,8 +182,9 @@ def load_language(lang_code: str) -> dict:
     return _MESSAGES
 
 def T(key: str, **kw) -> str:
-    """Retourne la traduction de 'key', avec substitutions optionnelles."""
-    value = _MESSAGES.get(key, key)
+    """Traduction de 'key'. Chaine vide si la cle est absente : les appelants
+    fournissent alors leur repli via `T("key") or "defaut"`."""
+    value = _MESSAGES.get(key, "")
     value = value.replace("\\n", "\n")
     return value.format(**kw) if kw else value
 
@@ -229,9 +230,9 @@ def _schema_data_uri() -> str:
         return "data:image/png;base64," + base64.b64encode(f.read()).decode()
 
 
-def _wireframe_segments(p):
-    """Reconstruit la geometrie filaire (sans appel API) : memes formules que build_structure."""
-    n = int(p["n"]); e = float(p["e"])
+def _derive_geometry(p):
+    """Scalaires derives et positions de pannes le long des arbaletriers.
+    Source unique partagee par validate(), build_structure() et l'apercu 3D."""
     Hg, Hd, L, AR, F = float(p["Hg"]), float(p["Hd"]), float(p["L"]), float(p["AR"]), float(p["F"])
     Npg, Npd = int(p["Npg"]), int(p["Npd"])
     Dbg, Dbd = float(p["Dbg"]), float(p["Dbd"])
@@ -239,6 +240,19 @@ def _wireframe_segments(p):
     H_faitage = max(Hg, Hd) + F
     Lg = math.sqrt(AR ** 2 + (H_faitage - Hg) ** 2)
     Ld = math.sqrt((L - AR) ** 2 + (H_faitage - Hd) ** 2)
+    pos_g = [k * (Lg - Dbg) / (Npg - 1) for k in range(Npg)] if Npg >= 2 else []
+    pos_d = [k * (Ld - Dbd) / (Npd - 1) for k in range(Npd)] if Npd >= 2 else []
+    return H_faitage, Lg, Ld, pos_g, pos_d
+
+
+def _wireframe_segments(p):
+    """Reconstruit la geometrie filaire (sans appel API)."""
+    n = int(p["n"]); e = float(p["e"])
+    Hg, Hd, L, AR = float(p["Hg"]), float(p["Hd"]), float(p["L"]), float(p["AR"])
+    Npg, Npd = int(p["Npg"]), int(p["Npd"])
+    Dbg, Dbd = float(p["Dbg"]), float(p["Dbd"])
+
+    H_faitage, Lg, Ld, pos_g, pos_d = _derive_geometry(p)
     if Lg <= 0 or Ld <= 0 or Npg < 2 or Npd < 2 or Dbg >= Lg or Dbd >= Ld:
         raise ValueError("geometrie invalide")
 
@@ -252,8 +266,6 @@ def _wireframe_segments(p):
                       (sommet_g, faitage), (sommet_d, faitage)]
         supports += [pied_g, pied_d]
 
-    pos_g = [k * (Lg - Dbg) / (Npg - 1) for k in range(Npg)]
-    pos_d = [k * (Ld - Dbd) / (Npd - 1) for k in range(Npd)]
     for i in range(n - 1):
         Y0, Y1 = i * e, (i + 1) * e
         sg0, f0 = (0, Y0, Hg), (AR, Y0, H_faitage)
@@ -319,12 +331,11 @@ def check_port(host: str) -> None:
         raise ValueError(f"URL invalide : {host}")
     if port is None:
         port = 443 if parsed.scheme == "https" else 80
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(3)
-    result = sock.connect_ex((hostname, port))
-    sock.close()
-    if result != 0:
-        raise ConnectionError(f"Port inaccessible : {hostname}:{port}")
+    try:
+        # create_connection essaie toutes les adresses getaddrinfo (IPv4 + IPv6)
+        socket.create_connection((hostname, port), timeout=3).close()
+    except OSError as e:
+        raise ConnectionError(f"Port inaccessible : {hostname}:{port}") from e
 
 
 def _check(response: requests.Response, label: str) -> dict:
@@ -506,9 +517,7 @@ def validate(p):
     if p["Dbd"] < 0: errors.append(T("val_Dbd") or "Dbd ≥ 0")
 
     if not errors:
-        H_faitage = max(p["Hg"], p["Hd"]) + p["F"]
-        Lg = math.sqrt(p["AR"]**2 + (H_faitage - p["Hg"])**2)
-        Ld = math.sqrt((p["L"] - p["AR"])**2 + (H_faitage - p["Hd"])**2)
+        _, Lg, Ld, _, _ = _derive_geometry(p)
         if p["Dbg"] >= Lg:
             errors.append(T("val_Dbg_long", dbg=p["Dbg"], lg=round(Lg,3)) or f"Dbg ({p['Dbg']}) ≥ Lg ({Lg:.3f})")
         if p["Dbd"] >= Ld:
@@ -520,14 +529,11 @@ def validate(p):
 
 def build_structure(host, p, log_cb):
     n, e_val = p["n"], p["e"]
-    Hg, Hd, L, AR, F = p["Hg"], p["Hd"], p["L"], p["AR"], p["F"]
-    Npg, Npd, Dbg, Dbd = p["Npg"], p["Npd"], p["Dbg"], p["Dbd"]
+    Hg, Hd, L, AR = p["Hg"], p["Hd"], p["L"], p["AR"]
     type_appui   = p["TypeAppui"]
     creer_parois = p.get("creer_parois", False)
 
-    H_faitage = max(Hg, Hd) + F
-    Lg = math.sqrt(AR**2 + (H_faitage - Hg)**2)
-    Ld = math.sqrt((L - AR)**2 + (H_faitage - Hd)**2)
+    H_faitage, Lg, Ld, positions_g, positions_d = _derive_geometry(p)
 
     log_cb(T("log_materiau", nom=p["M"]) or f"Création matériau {p['M']}…")
     mat_id = create_material(host, p["M"])
@@ -568,9 +574,6 @@ def build_structure(host, p, log_cb):
         counts["appuis"] += 2
 
         log_cb(T("log_portique_ok", i=i+1, n=n) or f"  Portique {i+1}/{n} OK")
-
-    positions_g = [k * (Lg - Dbg) / (Npg - 1) for k in range(Npg)]
-    positions_d = [k * (Ld - Dbd) / (Npd - 1) for k in range(Npd)]
 
     log_cb(T("log_pannes_g") or "Création pannes versant gauche…")
     for i in range(n - 1):
@@ -680,6 +683,7 @@ def _init_session():
         "Dbd":            0.3,
         "creer_parois":   True,
         "log_lines":      [],   # liste de (texte, tag)
+        "last_result":    None,  # None | "ok" | "error"
         "running":        False,
         "api_proc":       None,
     }
@@ -700,56 +704,68 @@ def _run_generation(params: dict, host: str):
     def log(msg, tag="info"):
         _append_log(msg, tag)
 
-    try:
-        log("=" * 52, "head")
-        log(f"Fichier : {params.get('fto','')}", "head")
-        log(f"API     : {host}", "head")
-        log("=" * 52, "head")
+    sep = "=" * 52
 
-        log("Vérification du port API…")
+    def row(label, value, tag="info"):
+        log(f"  {label:<26}: {value}", tag)
+
+    def meters(v):
+        return T("syn_unite_m", val=v) or f"{v} m"
+
+    st.session_state.last_result = None
+    try:
+        log(sep, "head")
+        log(T("log_fichier", path=params.get("fto", "")) or f"Fichier : {params.get('fto','')}", "head")
+        log(T("log_api", host=host) or f"API     : {host}", "head")
+        log(sep, "head")
+
+        log(T("log_verif_port") or "Vérification du port API…")
         check_port(host)
-        log("✓ API accessible", "ok")
+        log(T("log_api_ok") or "✓ API accessible", "ok")
 
         if params.get("nouveau_projet"):
-            log(f"Création du projet : {params['fto']}")
+            log(T("log_nouveau_projet", path=params["fto"]) or f"Création du projet : {params['fto']}")
             new_project(host, params["fto"])
-            log("✓ Projet créé", "ok")
+            log(T("log_nouveau_projet_ok") or "✓ Projet créé", "ok")
         else:
-            log(f"Ouverture du projet : {params['fto']}")
+            log(T("log_ouverture", path=params["fto"]) or f"Ouverture du projet : {params['fto']}")
             open_project(host, params["fto"])
-            log("✓ Projet ouvert", "ok")
+            log(T("log_ouverture_ok") or "✓ Projet ouvert", "ok")
 
         counts, total, Lg, Ld, H_faitage = build_structure(host, params, log)
 
-        log("Fermeture du projet…")
+        log(T("log_fermeture") or "Fermeture du projet…")
         close_project(host)
-        log("✓ Projet fermé", "ok")
+        log(T("log_fermeture_ok") or "✓ Projet fermé", "ok")
 
-        log("=" * 52, "head")
-        log("GÉNÉRATION RÉUSSIE", "ok")
-        log("=" * 52, "head")
-        log(f"  {'Portiques':<24}: {params['n']}")
-        log(f"  {'Entraxe':<24}: {params['e']} m")
-        log(f"  {'Hg / Hd':<24}: {params['Hg']} / {params['Hd']} m")
-        log(f"  {'Portée':<24}: {params['L']} m")
-        log(f"  {'Abscisse faîtage':<24}: {params['AR']} m")
-        log(f"  {'Flèche':<24}: {params['F']} m")
-        log(f"  {'H faîtage':<24}: {H_faitage:.3f} m")
-        log(f"  {'Lg (versant G)':<24}: {Lg:.3f} m")
-        log(f"  {'Ld (versant D)':<24}: {Ld:.3f} m")
-        log(f"  {'Type appui':<24}: {params['TypeAppui']}")
-        log(f"  {'Poteaux ({Sp})':<24}: {counts['poteaux']}".replace("{Sp}", params['Sp']))
-        log(f"  {'Arbalétriers ({Sa})':<24}: {counts['arbaletriers']}".replace("{Sa}", params['Sa']))
-        log(f"  {'Pannes G ({Sn})':<24}: {counts['pannes_g']}".replace("{Sn}", params['Sn']))
-        log(f"  {'Pannes D ({Sn})':<24}: {counts['pannes_d']}".replace("{Sn}", params['Sn']))
-        log(f"  {'Appuis':<24}: {counts['appuis']}")
+        log(sep, "head")
+        log(T("syn_succes") or "GÉNÉRATION RÉUSSIE", "ok")
+        log(sep, "head")
+        row(T("syn_portiques")     or "Portiques",   params["n"])
+        row(T("syn_entraxe")       or "Entraxe",     meters(params["e"]))
+        row(T("syn_hg_hd")         or "Hg / Hd",
+            T("syn_unite_m_m", vg=params["Hg"], vd=params["Hd"]) or f"{params['Hg']} m / {params['Hd']} m")
+        row(T("syn_portee")        or "Portée",      meters(params["L"]))
+        row(T("syn_ar")            or "AR",          meters(params["AR"]))
+        row(T("syn_fleche")        or "Flèche F",    meters(params["F"]))
+        row(T("syn_h_faitage")     or "H faîtage",   meters(f"{H_faitage:.3f}"))
+        row(T("syn_lg")            or "Lg",          meters(f"{Lg:.3f}"))
+        row(T("syn_ld")            or "Ld",          meters(f"{Ld:.3f}"))
+        row(T("syn_appui")         or "Type appui",  params["TypeAppui"])
+        row(T("syn_poteaux", Sp=params["Sp"])      or f"Poteaux {params['Sp']}",      counts["poteaux"])
+        row(T("syn_arbaletriers", Sa=params["Sa"]) or f"Arbalétriers {params['Sa']}", counts["arbaletriers"])
+        row(T("syn_pannes_g", Sn=params["Sn"])     or f"Pannes G {params['Sn']}",     counts["pannes_g"])
+        row(T("syn_pannes_d", Sn=params["Sn"])     or f"Pannes D {params['Sn']}",     counts["pannes_d"])
+        row(T("syn_appuis")        or "Appuis",      counts["appuis"])
         if params["creer_parois"]:
-            log(f"  {'Parois':<24}: {counts['parois']}")
-        log(f"  {'TOTAL éléments':<24}: {total}", "ok")
-        log("=" * 52, "head")
+            row(T("syn_parois")    or "Parois",      counts["parois"])
+        row(T("syn_total")         or "TOTAL éléments", total, "ok")
+        log(sep, "head")
+        st.session_state.last_result = "ok"
 
     except Exception as ex:
-        log(f"ERREUR : {ex}", "error")
+        log(T("log_erreur", ex=ex) or f"ERREUR : {ex}", "error")
+        st.session_state.last_result = "error"
         try:
             close_project(host)
         except Exception:
@@ -1062,12 +1078,14 @@ def main():
                 save_config(st.session_state.lang, st.session_state.api_server_exe, theme_choice)
                 st.rerun()
 
-            st.session_state.api_server_exe = st.text_input(
+            new_exe = st.text_input(
                 T("ui_chemin_exe") or "Chemin AD.API.Srv.exe",
                 value=st.session_state.api_server_exe,
                 key="_exe_input",
             )
-            save_config(st.session_state.lang, st.session_state.api_server_exe, st.session_state.theme)
+            if new_exe != st.session_state.api_server_exe:
+                st.session_state.api_server_exe = new_exe
+                save_config(st.session_state.lang, new_exe, st.session_state.theme)
 
 
 
@@ -1230,6 +1248,7 @@ def main():
         with btn_c2:
             if st.button("🗑", help=T("ui_btn_effacer") or "Effacer le journal", width="stretch"):
                 st.session_state.log_lines = []
+                st.session_state.last_result = None
                 st.rerun()
         with btn_c3:
             if st.session_state.running:
@@ -1272,12 +1291,10 @@ def main():
             unsafe_allow_html=True,
         )
 
-        if st.session_state.log_lines:
-            last_tags = [tag for _, tag in st.session_state.log_lines]
-            if "error" in last_tags:
-                st.error(T("ui_generation_echouee") or "Génération échouée.")
-            elif any("RÉUSSIE" in msg or "succes" in msg.lower() or "REUSSIE" in msg.upper() for msg, _ in st.session_state.log_lines):
-                st.success(T("ui_generation_reussie") or "Structure générée avec succès.")
+        if st.session_state.last_result == "error":
+            st.error(T("ui_generation_echouee") or "Génération échouée.")
+        elif st.session_state.last_result == "ok":
+            st.success(T("ui_generation_reussie") or "Structure générée avec succès.")
 
     # ==================================================================
     # LANCEMENT
@@ -1400,6 +1417,22 @@ if __name__ == "__main__":
             # avec les variables d'environnement STREAMLIT_*
             from streamlit.web import cli as _st_cli
             script = os.path.join(sys._MEIPASS, "steel_frame_web.py")
+            if load_config().get("theme") == "light":
+                theme_argv = [
+                    "--theme.base",                     "light",
+                    "--theme.primaryColor",             "#1d4ed8",
+                    "--theme.backgroundColor",          "#ffffff",
+                    "--theme.secondaryBackgroundColor", "#eef1f6",
+                    "--theme.textColor",                "#1e2634",
+                ]
+            else:
+                theme_argv = [
+                    "--theme.base",                     "dark",
+                    "--theme.primaryColor",             "#1d4ed8",
+                    "--theme.backgroundColor",          "#0f1623",
+                    "--theme.secondaryBackgroundColor", "#1e2634",
+                    "--theme.textColor",                "#e2e8f0",
+                ]
             sys.argv = [
                 "streamlit", "run", script,
                 "--server.port",                        "8501",
@@ -1407,12 +1440,7 @@ if __name__ == "__main__":
                 "--server.headless",                    "true",
                 "--global.developmentMode",             "false",
                 "--browser.gatherUsageStats",           "false",
-                "--theme.base",                         "dark",
-                "--theme.primaryColor",                 "#1d4ed8",
-                "--theme.backgroundColor",              "#0f1623",
-                "--theme.secondaryBackgroundColor",     "#1e2634",
-                "--theme.textColor",                    "#e2e8f0",
-            ]
+            ] + theme_argv
             _st_cli.main(standalone_mode=False)
         else:
             # Processus principal : lanceur + ouverture navigateur
